@@ -11,7 +11,7 @@ from email.header import Header
 import xlrd
 import os
 import datetime
-import pandas as pd
+
 
 from commonlib import write_log
 
@@ -26,6 +26,7 @@ g_teble_content = {}
 
 #字段定义
 CONF_MAIL_HOST           = "mail_host"
+CONF_MAIL_PORT           = "port"
 CONF_MAIL_SENDER         = "mail_sender"
 CONF_MAIL_PASSWORD       = "mail_password"
 CONF_MAIL_CC             = "mail_cc"
@@ -48,8 +49,7 @@ def automail_start():
     send_mail()
 
 def init_config():
-    work_dir = os.path.dirname(__file__)
-    conf_path = "{}\\conf\\automail.ini".format(work_dir)
+    conf_path = r"conf\automail.ini"
     global g_setting
     with open(conf_path, 'r', encoding='utf-8') as fpr:
         setting = fpr.read()
@@ -86,7 +86,7 @@ def init_content():
     xlsx_data = xlrd.open_workbook(xlsx_path)
     sheet_table = xlsx_data.sheet_by_name(sheet_name)
     head_row_num = int(conf_table_head_row)
-    table_head = sheet_table.row_values(head_row_num)  # 获取第二行的数据
+    table_head = sheet_table.row_values(head_row_num)
     # print("row content:", table_head)
 
     index = 0
@@ -140,6 +140,11 @@ def send_mail():
     # SMTP服务器,这里使用163邮箱
     mail_host = get_setting(CONF_MAIL_HOST)
     if None == mail_host:
+        return
+
+    # 邮件服务器端口
+    mail_port = get_setting(CONF_MAIL_PORT)
+    if None == mail_port:
         return
 
     # 发件人邮箱
@@ -229,14 +234,12 @@ def send_mail():
         # 创建SMTP对象
         stp = smtplib.SMTP()
         # 设置发件人邮箱的域名和端口，端口地址为25
-        port = 25
-        write_log("Try to connet mail server：{}:{}".format(mail_host, port))
+        write_log("Try to connet mail server：{}:{}".format(mail_host, mail_port))
         # set_debuglevel(1)可以打印出和SMTP服务器交互的所有信息
         stp.set_debuglevel(1)
-        stp.connect(mail_host, port)
+        stp.connect(mail_host, mail_port)
 
         # 登录邮箱，传递参数1：邮箱地址，参数2：邮箱授权码
-
         stp.login(mail_sender,mail_license)
         # 发送邮件，传递参数1：发件人邮箱地址，参数2：收件人邮箱地址，参数3：把邮件内容格式改为str
         stp.sendmail(mail_sender, list(receivers_set) + mail_cc.split(','), mm.as_string())
