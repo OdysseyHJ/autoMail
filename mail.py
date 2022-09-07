@@ -230,17 +230,19 @@ def send_mail():
             mm.attach(atta)
 
 
-        # return
         # 创建SMTP对象
-        stp = smtplib.SMTP()
+        # stp = smtplib.SMTP()
         # 设置发件人邮箱的域名和端口，端口地址为25
         write_log("Try to connet mail server：{}:{}".format(mail_host, mail_port))
         # set_debuglevel(1)可以打印出和SMTP服务器交互的所有信息
-        stp.set_debuglevel(1)
-        stp.connect(mail_host, mail_port)
-
+        # stp.set_debuglevel(1)
+        # stp.connect(mail_host, mail_port)
+        stp = smtplib.SMTP(mail_host, mail_port)
+        stp.ehlo()
+        stp.starttls()
+        # stp.ehlo()
         # 登录邮箱，传递参数1：邮箱地址，参数2：邮箱授权码
-        stp.login(mail_sender,mail_license)
+        stp.login(mail_sender, mail_license)
         # 发送邮件，传递参数1：发件人邮箱地址，参数2：收件人邮箱地址，参数3：把邮件内容格式改为str
         stp.sendmail(mail_sender, list(receivers_set) + mail_cc.split(','), mm.as_string())
         print("邮件发送成功，项目编码：", key)
