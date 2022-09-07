@@ -126,7 +126,7 @@ def get_receivers(content_list):
     # print(receivers_set)
     return receivers_set
 
-
+# 获取账龄告警数量
 def get_exceed_time_invoice_count(content_list):
     invoice_count = 0
     for line in content_list:
@@ -155,11 +155,8 @@ def send_mail():
     # 抄送人邮箱
     mail_cc = get_setting(CONF_MAIL_CC)
 
-
     # 邮件发送日期
     mail_date = datetime.datetime.now().strftime('%Y-%m-%d')
-
-
 
     # 邮箱授权码
     mail_license = get_setting(CONF_MAIL_PASSWORD)
@@ -182,6 +179,14 @@ def send_mail():
     with open(tempate_path, 'r', encoding='utf-8') as fpr:
         mail_content_temp = fpr.read()
 
+    # 创建SMTP对象设置发件人邮箱的域名和端口，端口地址
+    stp = smtplib.SMTP(mail_host, mail_port)
+    stp.ehlo()
+    stp.starttls()
+
+    # 登录邮箱，传递参数1：邮箱地址，参数2：邮箱授权码
+    write_log("Try to connet mail server：{}:{}".format(mail_host, mail_port))
+    stp.login(mail_sender, mail_license)
 
     for key, val in g_teble_content.items():
 
@@ -189,10 +194,11 @@ def send_mail():
 
         # 设置发送者,注意严格遵守格式,里面邮箱为发件人邮箱
         mm["From"] = generate_receiver_str(mail_sender)
+
         # 设置接受者,注意严格遵守格式,里面邮箱为接受者邮箱
         receivers_set = get_receivers(val)
         mm["To"] = generate_receiver_str(receivers_set)
-        # print(mm["To"])
+
 
         # 设置抄送人
         if None != mail_cc:
@@ -229,29 +235,16 @@ def send_mail():
             # 添加附件到邮件信息当中去
             mm.attach(atta)
 
-
-        # 创建SMTP对象
-        # stp = smtplib.SMTP()
-        # 设置发件人邮箱的域名和端口，端口地址为25
-        write_log("Try to connet mail server：{}:{}".format(mail_host, mail_port))
-        # set_debuglevel(1)可以打印出和SMTP服务器交互的所有信息
-        # stp.set_debuglevel(1)
-        # stp.connect(mail_host, mail_port)
-        stp = smtplib.SMTP(mail_host, mail_port)
-        stp.ehlo()
-        stp.starttls()
-        # stp.ehlo()
-        # 登录邮箱，传递参数1：邮箱地址，参数2：邮箱授权码
-        stp.login(mail_sender, mail_license)
         # 发送邮件，传递参数1：发件人邮箱地址，参数2：收件人邮箱地址，参数3：把邮件内容格式改为str
         stp.sendmail(mail_sender, list(receivers_set) + mail_cc.split(','), mm.as_string())
         print("邮件发送成功，项目编码：", key)
         write_log("邮件发送成功，项目编码：{}".format(key))
-        # 关闭SMTP对象
-        stp.quit()
+
+    # 关闭SMTP对象
+    stp.quit()
 
 
-
+# 获取配置字段
 def get_setting(str_field):
     if str_field not in g_setting.keys():
         write_log("{} is not loaded".format(str_field))
@@ -259,6 +252,7 @@ def get_setting(str_field):
 
     return g_setting[str_field]
 
+# 生成邮件收件人 返回格式: receiver_name1<receiver_mail1>,receiver_name2<receiver_mail2>,
 def generate_receiver_str(receivers):
     if type(receivers) == str:
         return "{}<{}>".format(receivers.split('@')[0], receivers)
@@ -269,6 +263,8 @@ def generate_receiver_str(receivers):
 
     return res
 
+
+# 生成html邮件正文,需要生成表格,故采用html格式的邮件正文
 def generate_mail_body(mail_text, mail_table):
     text_list = mail_text.split('\n')
     mail_text = "</br>".join(text_list)
@@ -298,11 +294,9 @@ def generate_mail_body(mail_text, mail_table):
     mail_body = """\
     <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-
-
     <body>
     <div id="container">
-    <p style="line-height: 12px;">{html_text}</p>
+    <p style="line-height: 20px;">{html_text}</p>
     <div id="content">
      <table width="2000" border="2" bordercolor="black" cellspacing="0" cellpadding="0" >
      {html_table_head}
