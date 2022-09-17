@@ -1,6 +1,7 @@
 # autoMail
 auto mail tools. author:BrookTaylor
 
+automail_release gui ver 1.0 2022.09.18
 
 确保表格符合以下要求
 1.首行为表头，不要有重复字段

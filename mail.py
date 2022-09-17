@@ -11,7 +11,7 @@ from email.header import Header
 import xlrd
 import os
 import datetime
-
+import traceback
 
 from commonlib import write_log
 
@@ -23,6 +23,94 @@ g_table_head = {}
 
 #表格内容, key:mail key     value:row list
 g_teble_content = {}
+
+#邮件字典,key id   value CMailObj
+g_mail_dict = {}
+
+class CMailObj:
+    def __init__(self, id=0, sender='', receiver=set(), cc='', subject = '', appendix = [], content = ''):
+        self.id = id                  # 邮件ID
+        self.sender     = sender      # 发件人
+        self.receiver   = receiver    # 收件人
+        self.cc         = cc          # 抄送人
+        self.subject    = subject     # 邮件主题
+        self.appendix   = appendix    # 附件信息
+        self.content    = content     # 邮件内容
+
+    def show(self):
+        print_content = "id:{}\nsender:{}\nreceiver:{}\ncc:{}\nsubject:{}\nappendix:{}\ncontent:{}\n".format(self.id,
+                                                                                                             self.sender,
+                                                                                                             self.receiver,
+                                                                                                             self.cc,
+                                                                                                             self.subject,
+                                                                                                             self.appendix,
+                                                                                                             self.content)
+        print(print_content)
+
+class CMailCommon:
+    def __init__(self, host='', port=0, sender='', password='', mail_date='', sended_record_path = '', sended_set=set(), selected_set=set()):
+        self.host = host
+        self.port = port
+        self.sender = sender
+        self.password = password
+        self.mail_date = mail_date
+        self.sended_record_path = sended_record_path
+        self.sended_set = sended_set
+        self.selected_set = selected_set
+
+    def init_sended_set(self):
+        if os.path.exists(self.sended_record_path):
+            with open(self.sended_record_path, 'r') as fp:
+                record_list = fp.read().split("\n")
+                self.sended_set = set(record_list)
+
+    def dump_sended_set(self):
+        with open(self.sended_record_path, 'w') as fp:
+            fp.write('\n'.join(self.sended_set))
+
+    def clear_sended_set(self):
+        if len(self.sended_set) == 0:
+            return
+        self.sended_set = set()
+        self.dump_sended_set()
+
+    def add_sended_set(self, mail_id):
+        self.sended_set.add(mail_id)
+
+    def remove_sended_set(self, mail_id):
+        if mail_id not in self.sended_set:
+            return
+        self.sended_set.remove(mail_id)
+
+    def is_in_sended_set(self, mail_id):
+        return mail_id in self.sended_set
+
+    def add_selected_mail(self, id):
+        self.selected_set.add(id)
+
+    def remove_selected_mail(self, id):
+        self.selected_set.remove(id)
+
+    def is_selected_joint_sended(self):
+        # print(self.sended_set)
+        # print(self.selected_set)
+        # print(self.sended_set.isdisjoint(self.selected_set))
+        return not (self.sended_set.isdisjoint(self.selected_set))
+
+    def send_selected_mail(self):
+        for mail_id in self.selected_set:
+
+            if mail_id not in g_mail_dict.keys():
+                write_log("Mial id not Exist in mail dict, mail_id={}".format(mail_id))
+                continue
+            mail_obj = g_mail_dict[mail_id]
+            send_mail(mail_obj)
+            # print("邮件发送成功，项目编码:", mail_id)
+            self.add_sended_set(mail_id)
+        self.dump_sended_set()
+
+# 全局邮件公共信息
+g_mail_common = CMailCommon()
 
 #字段定义
 CONF_MAIL_HOST           = "mail_host"
@@ -39,6 +127,7 @@ CONF_SHEET_NAME          = "sheet_name"
 CONF_MAIL_KEY            = "mail_key"
 CONF_MAIL_RECEIVER_KEY   = "mail_receiver_key"
 CONF_TABLE_HEAD_ROW      = "table_head_row"
+CONF_SENDED_RECORD_PATH  = "sended_record_path"
 
 
 def automail_start():
@@ -46,7 +135,9 @@ def automail_start():
     init_content()
     # print(g_setting)
 
-    send_mail()
+    init_mail_dict()
+
+    # send_all_mail()
 
 def init_config():
     conf_path = r"conf\automail.ini"
@@ -134,42 +225,61 @@ def get_exceed_time_invoice_count(content_list):
             invoice_count += 1
     return invoice_count
 
+# 初始化邮件内容字典
+def init_mail_dict():
+    global g_mail_common
 
-
-def send_mail():
     # SMTP服务器,这里使用163邮箱
     mail_host = get_setting(CONF_MAIL_HOST)
     if None == mail_host:
         return
+    g_mail_common.host = mail_host
 
     # 邮件服务器端口
     mail_port = get_setting(CONF_MAIL_PORT)
     if None == mail_port:
         return
+    g_mail_common.port = mail_port
 
     # 发件人邮箱
     mail_sender = get_setting(CONF_MAIL_SENDER)
     if None == mail_sender:
         return
-
-    # 抄送人邮箱
-    mail_cc = get_setting(CONF_MAIL_CC)
-
-    # 邮件发送日期
-    mail_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    g_mail_common.sender = mail_sender
 
     # 邮箱授权码
     mail_license = get_setting(CONF_MAIL_PASSWORD)
     if None == mail_license:
         return
+    g_mail_common.password = mail_license
+
+    # 邮件发送日期
+    mail_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    g_mail_common.mail_date = mail_date
+
+    # 获取已发送邮件记录
+    sended_record_path = get_setting(CONF_SENDED_RECORD_PATH)
+    if None == sended_record_path:
+        return
+    g_mail_common.sended_record_path = sended_record_path
+    g_mail_common.init_sended_set()
+
+    # 抄送人邮箱
+    mail_cc = get_setting(CONF_MAIL_CC)
 
     # 邮件主题
     mail_subject = get_setting(CONF_MAIL_SUBJECT)
     if None == mail_subject:
         return
 
-    mail_subject = mail_subject.format(config_mail_date = mail_date)
+    mail_subject = mail_subject.format(config_mail_date=mail_date)
     # print("test", mail_subject)
+
+    # 邮件附件列表
+    appendix_list = []
+    appendix_path = get_setting(CONF_MAIL_APPENDIX_PATH)
+    if None != appendix_path:
+        appendix_list = appendix_path.split(';')
 
     # 邮件正文模板
     tempate_path = get_setting(CONF_MAIL_CONTENT_TEMPLATE)
@@ -179,66 +289,90 @@ def send_mail():
     with open(tempate_path, 'r', encoding='utf-8') as fpr:
         mail_content_temp = fpr.read()
 
+    # 初始化邮件
+    global g_mail_dict
+    for key, val in g_teble_content.items():
+        # 收件人集合
+        receivers_set = get_receivers(val)
+
+        # 邮件内容初始化
+        invoice_count = get_exceed_time_invoice_count(val)
+        mail_text = mail_content_temp.format(config_mail_date = mail_date, calc_invoice_count = invoice_count)
+        mail_content = generate_mail_body(mail_text, val)
+
+        g_mail_dict[key] = CMailObj(id = key,
+                                    sender = mail_sender,
+                                    receiver = receivers_set,
+                                    cc = mail_cc,
+                                    subject = mail_subject,
+                                    appendix = appendix_list,
+                                    content = mail_content)
+        # g_mail_dict[key].show()
+    return
+
+
+def send_all_mail():
+    global g_mail_dict
+    for key, mail_obj in  g_mail_dict.items():
+        send_mail(mail_obj)
+
+def send_mail(mail_obj):
+    print("start send mail")
+    global g_mail_common
     # 创建SMTP对象设置发件人邮箱的域名和端口，端口地址
-    stp = smtplib.SMTP(mail_host, mail_port)
+    stp = smtplib.SMTP(g_mail_common.host, g_mail_common.port)
     stp.ehlo()
     stp.starttls()
 
     # 登录邮箱，传递参数1：邮箱地址，参数2：邮箱授权码
-    write_log("Try to connet mail server：{}:{}".format(mail_host, mail_port))
-    stp.login(mail_sender, mail_license)
+    write_log("Try to connect mail server：{}:{}".format(g_mail_common.host, g_mail_common.port))
 
-    for key, val in g_teble_content.items():
+    try:
+        stp.login(g_mail_common.sender, g_mail_common.password)
+    except Exception as e:
+        write_log("Connect mail server failed, error info: {}".format(traceback.format_exc()))
 
-        mm = MIMEMultipart('mixed')
-
-        # 设置发送者,注意严格遵守格式,里面邮箱为发件人邮箱
-        mm["From"] = generate_receiver_str(mail_sender)
-
-        # 设置接受者,注意严格遵守格式,里面邮箱为接受者邮箱
-        receivers_set = get_receivers(val)
-        mm["To"] = generate_receiver_str(receivers_set)
+    write_log("Connect mail server succeed")
 
 
-        # 设置抄送人
-        if None != mail_cc:
-            mm["Cc"] = mail_cc
-        # 设置邮件主题
-        mm["Subject"] = Header(mail_subject,'utf-8')
+    mm = MIMEMultipart('mixed')
+
+    # 设置发送者,注意严格遵守格式,里面邮箱为发件人邮箱
+    mm["From"] = generate_receiver_str(g_mail_common.sender)
+
+    # 设置接受者,注意严格遵守格式,里面邮箱为接受者邮箱
+    mm["To"] = generate_receiver_str(mail_obj.receiver)
 
 
+    # 设置抄送人
+    mm["Cc"] = mail_obj.cc
 
-        # mail_content
-        invoice_count = get_exceed_time_invoice_count(val)
-        mail_content = mail_content_temp.format(config_mail_date = mail_date, calc_invoice_count = invoice_count)
-        # print(mail_content)
-        # 构造文本,参数1：正文内容，参数2：文本格式，参数3：编码方式
-        # message_text = MIMEText(mail_content,"plain","utf-8")
-        # 向MIMEMultipart对象中添加文本对象
-        # mm.attach(message_text)
+    # 设置邮件主题
+    mm["Subject"] = Header(mail_obj.subject, 'utf-8')
 
-        mail_body = generate_mail_body(mail_content, val)
+    # 邮件内容
+    context = MIMEText(mail_obj.content, _subtype='html', _charset='utf-8')  # 解决乱码
+    mm.attach(context)
 
-        # return
-        context = MIMEText(mail_body, _subtype='html', _charset='utf-8')  # 解决乱码
-        mm.attach(context)
+    # 添加附件
+    for each_appendix in mail_obj.appendix:
+        if len(each_appendix) == 0:
+            continue
 
-        # 构造附件
-        appendix_path = get_setting(CONF_MAIL_APPENDIX_PATH)
-        if None != appendix_path:
+        atta = MIMEText(open(each_appendix, 'rb').read(), 'base64', 'utf-8')
 
-            atta = MIMEText(open(appendix_path, 'rb').read(), 'base64', 'utf-8')
-            # 设置附件信息
-            appendix_filename = appendix_path.split('\\')[-1]
-            # print(appendix_filename)
-            atta["Content-Disposition"] = 'attachment; filename="{}"'.format(appendix_filename)
-            # 添加附件到邮件信息当中去
-            mm.attach(atta)
+        # 设置附件信息
+        appendix_filename = each_appendix.split('\\')[-1]
+        atta['Content-Type'] = 'application/octet-stream'
+        atta.add_header("Content-Disposition", 'attachment', filename = ('gbk', '', appendix_filename))
 
-        # 发送邮件，传递参数1：发件人邮箱地址，参数2：收件人邮箱地址，参数3：把邮件内容格式改为str
-        stp.sendmail(mail_sender, list(receivers_set) + mail_cc.split(','), mm.as_string())
-        print("邮件发送成功，项目编码：", key)
-        write_log("邮件发送成功，项目编码：{}".format(key))
+        # 添加附件到邮件信息当中去
+        mm.attach(atta)
+
+    # 发送邮件，传递参数1：发件人邮箱地址，参数2：收件人邮箱地址，参数3：把邮件内容格式改为str
+    stp.sendmail(g_mail_common.sender, list(mail_obj.receiver) + mail_obj.cc.split(';'), mm.as_string())
+    print("邮件发送成功，项目编码：", mail_obj.id)
+    write_log("邮件发送成功，项目编码：{}".format(mail_obj.id))
 
     # 关闭SMTP对象
     stp.quit()
